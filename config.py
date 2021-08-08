@@ -95,9 +95,11 @@ def configure_log_folder(args):
         if args.override_cache:
             shutil.rmtree(log_folder, ignore_errors=True)
         else:
-            raise RuntimeError("Experiment with the same name exists: {}"
+            if args.resume == 'False':
+                raise RuntimeError("Experiment with the same name exists: {}"
                                .format(log_folder))
-    os.makedirs(log_folder)
+    if args.resume == 'False':
+        os.makedirs(log_folder)
     return log_folder
 
 
@@ -138,16 +140,57 @@ def get_configs():
                         const=True, default=False)
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers (default: 4)')
+    parser.add_argument("--resume", type=str, default='False')
+    parser.add_argument("--onlyTest", type=str2bool, default=False)
+    # adversarial examples settings
+    parser.add_argument('--attack_method',      dest='attack_method', 
+                        type=str,               default='pgd', 
+                        help='attacking method: pgd | mifgsm')
+    parser.add_argument('--epsilon',            dest='epsilon', 
+                        type=float,             default=3, 
+                        help='the maximum allowed perturbation per pixel')
+    parser.add_argument('--k',                  dest='k', 
+                        type=int,               default=4, 
+                        help='the number of PGD iterations used by the adversary')
+    parser.add_argument('--alpha',              dest='alpha', 
+                        type=float,             default=0.01, 
+                        help='the size of the PGD adversary steps')
+    parser.add_argument('--mu',                 dest='mu', 
+                        type=float,             default=1.0, 
+                        help='Moment for MIGFSM method')
+    parser.add_argument('--random_start',       dest='random_start', 
+                        action='store_false', 
+                        help='if random start')
+    parser.add_argument('--aug-splits', type=int, default=2,
+                    help='Number of augmentation splits (default: 0, valid: 0 or >=2)')
+    parser.add_argument('--resplit', action='store_true', default=False,
+                    help='Do not random erase first (clean) augmentation split')
+    parser.add_argument("--local_rank", default=0, type=int)
+    parser.add_argument('--distributed', action='store_true', default=True,
+                    help='Do')
+    parser.add_argument('--lambda_c',            dest='lambda_c', 
+                        type=float,             default=1.0, 
+                        help='The weighting factors controlling the importance of the entropy of the clean CAM')
+    parser.add_argument('--lambda_a',            dest='lambda_a', 
+                        type=float,             default=0.01, 
+                        help='The weighting factors controlling the importance of the entropy of the adv CAM')
 
+    # Batch norm parameters 
+    parser.add_argument('--sync-bn', action='store_true',
+                    help='Enable NVIDIA Apex or Torch synchronized BatchNorm.')
+    parser.add_argument('--dist-bn', type=str, default='',
+                        help='Distribute BatchNorm stats between nodes after each epoch ("broadcast", "reduce", or "")')
+
+    parser.add_argument("--split-bn", type=bool, default=True)
     # Data
     parser.add_argument('--dataset_name', type=str, default='CUB',
                         choices=_DATASET_NAMES)
     parser.add_argument('--data_root', metavar='/PATH/TO/DATASET',
-                        default='dataset/',
+                        default='/media/narimene/fichiers/',
                         help='path to dataset images')
     parser.add_argument('--metadata_root', type=str, default='metadata/')
     parser.add_argument('--mask_root', metavar='/PATH/TO/MASKS',
-                        default='dataset/',
+                        default='',
                         help='path to masks')
     parser.add_argument('--proxy_training_set', type=str2bool, nargs='?',
                         const=True, default=False,
@@ -174,6 +217,8 @@ def get_configs():
                         help='input resize size')
     parser.add_argument('--crop_size', type=int, default=224,
                         help='input crop size')
+    parser.add_argument('--tencrop', type=bool, default=True,
+                        help='tencrop')
     parser.add_argument('--multi_contour_eval', type=str2bool, nargs='?',
                         const=True, default=True)
     parser.add_argument('--multi_iou_eval', type=str2bool, nargs='?',
@@ -231,7 +276,8 @@ def get_configs():
                         help='CutMix beta')
     parser.add_argument('--cutmix_prob', type=float, default=1.0,
                         help='CutMix Mixing Probability')
-
+    parser.add_argument('--lambda1', type=float, default=1.0,
+                    help='lambda')
     args = parser.parse_args()
 
     check_dependency(args)

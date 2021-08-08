@@ -1,3 +1,4 @@
+
 """
 Original code: https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
 """
@@ -19,15 +20,16 @@ from .util import initialize_weights
 __all__ = ['vgg16']
 
 model_urls = {
-    'vgg16': 'https://download.pytorch.org/models/vgg16-397923af.pth'
+    'vgg16': 'https://download.pytorch.org/models/vgg16-397923af.pth',
+    'vgg16_bn': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth'
 }
 
 configs_dict = {
     'cam': {
         '14x14': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512,
                   512, 'M', 512, 512, 512],
-        '28x28': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512,
-                  512, 512, 512, 512],
+        '28x28': [64, 64, 'M1', 128, 128, 'M1', 256, 256, 256, 'M1', 512, 512,
+                  512, 'M2', 512, 512, 512, 'M2'],
     },
     'acol': {
         '14x14': [64, 64, 'M1', 128, 128, 'M1', 256, 256, 256, 'M1', 512, 512,
@@ -52,7 +54,7 @@ class VggCam(nn.Module):
     def __init__(self, features, num_classes=1000, **kwargs):
         super(VggCam, self).__init__()
         self.features = features
-
+       
         self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=1)
         self.relu = nn.ReLU(inplace=False)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
@@ -60,20 +62,25 @@ class VggCam(nn.Module):
         initialize_weights(self.modules(), init_mode='he')
 
     def forward(self, x, labels=None, return_cam=False):
+       
         x = self.features(x)
         x = self.conv6(x)
+        
         x = self.relu(x)
         pre_logit = self.avgpool(x)
         pre_logit = pre_logit.view(pre_logit.size(0), -1)
+        
         logits = self.fc(pre_logit)
+       
+        feature_map = x.detach().clone()
+        cam_weights = self.fc.weight[labels]
+        cams = (cam_weights.view(*feature_map.shape[:2], 1, 1) *  feature_map).mean(1, keepdim=False)
 
         if return_cam:
-            feature_map = x.detach().clone()
-            cam_weights = self.fc.weight[labels]
-            cams = (cam_weights.view(*feature_map.shape[:2], 1, 1) *
-                    feature_map).mean(1, keepdim=False)
-            return cams
-        return {'logits': logits}
+            
+            return cams, logits
+
+        return {'logits': logits, 'cams': cams}
 
 
 class VggAcol(AcolBase):
@@ -250,8 +257,10 @@ def batch_replace_layer(state_dict):
 
 def load_pretrained_model(model, architecture_type, path=None):
     if path is not None:
+        print('TRUE')
         state_dict = torch.load(os.path.join(path, 'vgg16.pth'))
     else:
+        print('FALSE')
         state_dict = load_url(model_urls['vgg16'], progress=True)
 
     if architecture_type == 'spg':
@@ -263,7 +272,7 @@ def load_pretrained_model(model, architecture_type, path=None):
     return model
 
 
-def make_layers(cfg, **kwargs):
+def make_layers(cfg, batch_norm=False, **kwargs):
     layers = []
     in_channels = 3
     for v in cfg:
@@ -278,7 +287,10 @@ def make_layers(cfg, **kwargs):
                 ADL(kwargs['adl_drop_rate'], kwargs['adl_drop_threshold'])]
         else:
             conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            layers += [conv2d, nn.ReLU(inplace=True)]
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
             in_channels = v
     return nn.Sequential(*layers)
 
@@ -290,7 +302,7 @@ def vgg16(architecture_type, pretrained=False, pretrained_path=None,
     model = {'cam': VggCam,
              'acol': VggAcol,
              'spg': VggSpg,
-             'adl': VggCam}[architecture_type](layers, **kwargs)
+             'adl': VggCam}[architecture_type](layers, batch_norm=False, **kwargs)
     if pretrained:
         model = load_pretrained_model(model, architecture_type,
                                       path=pretrained_path)

@@ -1,4 +1,3 @@
-
 """
 Copyright (c) 2020-present NAVER Corp.
 
@@ -27,14 +26,19 @@ import random
 import torch
 import torch.nn as nn
 import torch.optim
+import cv2
 
+import torch.nn.functional as F
 from config import get_configs
 from data_loaders import get_data_loader
 from inference import CAMComputer
 from util import string_contains_any
 import wsol
 import wsol.method
-
+from wsol.method import convert_splitbn_model
+from pgd_attack import create_attack
+from inference import normalize_scoremap
+from util import t2n
 
 def set_random_seed(seed):
     if seed is None:
@@ -58,6 +62,23 @@ class PerformanceMeter(object):
         self.current_value = self.value_per_epoch[-1]
         self.best_value = self.best_function(self.value_per_epoch)
         self.best_epoch = self.value_per_epoch.index(self.best_value)
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
 class Trainer(object):
@@ -94,6 +115,7 @@ class Trainer(object):
             resize_size=self.args.resize_size,
             crop_size=self.args.crop_size,
             proxy_training_set=self.args.proxy_training_set,
+            tencrop=self.args.tencrop,
             num_val_sample_per_class=self.args.num_val_sample_per_class)
 
     def _set_performance_meters(self):
@@ -124,10 +146,19 @@ class Trainer(object):
             adl_drop_rate=self.args.adl_drop_rate,
             adl_drop_threshold=self.args.adl_threshold,
             acol_drop_threshold=self.args.acol_threshold)
-        
-#        model = model.cuda()
-        model = torch.nn.DataParallel(model)
-        model= model.cuda()
+
+        num_aug_splits = 0
+        if self.args.aug_splits > 0:
+            assert self.args.aug_splits > 1, 'A split of 1 makes no sense'
+            num_aug_splits = self.args.aug_splits
+
+
+        if self.args.split_bn:
+            assert num_aug_splits > 1 or self.args.resplit
+            model = convert_splitbn_model(model, max(num_aug_splits, 2), self.args.batch_size)
+
+
+        model = model.cuda()
         print(model)
         return model
 
@@ -165,6 +196,41 @@ class Trainer(object):
             nesterov=True)
         return optimizer
 
+
+    def entropy_loss(self, v):
+        """
+            Entropy loss for probabilistic prediction vectors
+            input: batch_size x channels x h x w
+            output: batch_size x 1 x h x w
+        """
+        n, h, w = v.size()
+        f = int(n/2)
+        adv = v[f:,:,:]
+        clean = v[:f,:,:]
+        c = 2
+        p = -torch.sum(torch.mul(adv, torch.log2(adv + 1e-30)))  / (n * h * w)
+        b = -torch.sum(torch.mul(clean, torch.log2(clean + 1e-30)))  / (n * h * w)
+        return args.lambda_c*b + args.lambda_a*p
+
+    def prepare_ent(self, cams, image_size):
+        cams = t2n(cams)
+        a = False 
+        for i,cam in enumerate(cams):
+            cam_resized = cv2.resize(cam, image_size, interpolation=cv2.INTER_CUBIC)
+            # cams = F.softmax(cam_resized)
+            cam_normalized = normalize_scoremap(cam)
+
+            if not a:
+                a = True
+                came = torch.from_numpy(cam_normalized).float().cuda()
+                came = torch.unsqueeze(came,0)
+            else:
+                c = torch.unsqueeze(torch.from_numpy(cam_normalized).float().cuda(),0)
+                came = torch.cat((came, c),0)
+
+        return self.entropy_loss(came)
+
+
     def _wsol_training(self, images, target):
         if (self.args.wsol_method == 'cutmix' and
                 self.args.cutmix_prob > np.random.rand(1) and
@@ -183,6 +249,7 @@ class Trainer(object):
 
         output_dict = self.model(images, target)
         logits = output_dict['logits']
+        ent = self.prepare_ent(output_dict['cams'], images.shape[2:])
 
         if self.args.wsol_method in ('acol', 'spg'):
             loss = wsol.method.__dict__[self.args.wsol_method].get_loss(
@@ -190,9 +257,11 @@ class Trainer(object):
         else:
             loss = self.cross_entropy_loss(logits, target)
 
+        loss = loss + (self.args.lambda1 * ent)
+	
         return logits, loss
 
-    def train(self, split):
+    def train(self, attack, split):
         self.model.train()
         loader = self.loaders[split]
 
@@ -201,11 +270,18 @@ class Trainer(object):
         num_images = 0
 
         for batch_idx, (images, target, _) in enumerate(loader):
+            
             images = images.cuda()
             target = target.cuda()
-
+            x_adv = attack(images, target)
+            images = torch.cat((images, x_adv),0)
+            images = images.cuda()
+            target = torch.cat((target,target),0)
+            target = target.cuda()
             if batch_idx % int(len(loader) / 10) == 0:
                 print(" iteration ({} / {})".format(batch_idx + 1, len(loader)))
+
+
 
             logits, loss = self._wsol_training(images, target)
             pred = logits.argmax(dim=1)
@@ -250,14 +326,14 @@ class Trainer(object):
             pickle.dump(self.performance_meters, f)
 
 
-    def accuracy(self, loader, topk=(1,)):
+
+    def accuracy(logits, target, topk=(1,)):
         """
         Compute the top k accuracy of classification results.
         :param target: the ground truth label
         :param topk: tuple or list of the expected k values.
         :return: A list of the accuracy values. The list has the same lenght with para: topk
         """
-        logits, target, image_ids = loader
         maxk = max(topk)
         batch_size = target.size(0)
         scores = logits
@@ -270,35 +346,71 @@ class Trainer(object):
         for k in topk:
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
-
-        pred_1, pred_5 = res
-        return pred_1/batch_size, pred_5/batch_size
+        return res
 
 
     def _compute_accuracy(self, loader):
+
+        top1_clsacc = AverageMeter()
+        top1_locerr = AverageMeter()
+        top1_clsacc.reset()
+        top1_locerr.reset()
         num_correct = 0
         num_images = 0
-
+        pred_prob=[]
         for i, (images, targets, image_ids) in enumerate(loader):
+            if self.args.tencrop :
+                bs, ncrops, c, h, w = images.size()
+                images = images.view(-1, c, h, w)
+                label_input = targets.repeat(10, 1)
+                targets = label_input.view(-1)
+			
+			
+
             images = images.cuda()
             targets = targets.cuda()
-            output_dict = self.model(images)
+            output_dict = self.model(images,targets)
+			
+            if self.args.tencrop :
+                output_dict['logits'] = F.softmax(output_dict['logits'], dim=1)
+                output_dict['logits'] = output_dict['logits'].view(1, ncrops, -1).mean(1)
+
+
             pred = output_dict['logits'].argmax(dim=1)
 
+            prec1_1, prec5_1 = self.accuracy(pred, targets.long(), topk=(1, 5))
+            top1_clsacc.update(prec1_1[0].numpy(), images.size(0))
+            top5_clsacc.update(prec5_1[0].numpy(), images.size(0))
+            
+            pred_prob.append(pred)
             num_correct += (pred == targets).sum().item()
             num_images += images.size(0)
 
         classification_acc = num_correct / float(num_images) * 100
-        return classification_acc
+        with open('pred_prob.pkl', 'wb') as f :
+            pickle.dump(pred_prob, f)
+        return top1_clsacc.avg, top5_clsacc.avg
 
+		
     def evaluate(self, epoch, split):
         print("Evaluate epoch {}, split {}".format(epoch, split))
         self.model.eval()
 
-        #accuracy = self._compute_accuracy(loader=self.loaders[split])
-        accuracy = self.accuracy(loader=self.loaders[split])
+        accuracy = self._compute_accuracy(loader=self.loaders[split])
         self.performance_meters[split]['classification'].update(accuracy)
-
+        self.args.tencrop=False
+		
+        self.loaders = get_data_loader(
+            data_roots=self.args.data_paths,
+            metadata_root=self.args.metadata_root,
+            batch_size=self.args.batch_size,
+            workers=self.args.workers,
+            resize_size=self.args.resize_size,
+            crop_size=self.args.crop_size,
+            proxy_training_set=self.args.proxy_training_set,
+            tencrop=self.args.tencrop,
+            num_val_sample_per_class=self.args.num_val_sample_per_class)
+			
         cam_computer = CAMComputer(
             model=self.model,
             loader=self.loaders[split],
@@ -308,6 +420,7 @@ class Trainer(object):
             dataset_name=self.args.dataset_name,
             split=split,
             cam_curve_interval=self.args.cam_curve_interval,
+            tencrop=self.args.tencrop,
             multi_contour_eval=self.args.multi_contour_eval,
         )
         cam_performance = cam_computer.compute_and_evaluate_cams()
@@ -337,8 +450,9 @@ class Trainer(object):
                 .best_epoch) == epoch:
             self._torch_save_model(
                 self._CHECKPOINT_NAME_TEMPLATE.format('best'), epoch)
-        self._torch_save_model(
-            self._CHECKPOINT_NAME_TEMPLATE.format('last'), epoch)
+        else:
+            self._torch_save_model(
+                self._CHECKPOINT_NAME_TEMPLATE.format('last'), epoch)
 
     def report_train(self, train_performance, epoch, split='train'):
         reporter_instance = self.reporter(self.args.reporter_log_root, epoch)
@@ -385,25 +499,34 @@ class Trainer(object):
 def main():
     trainer = Trainer()
 
-    print("===========================================================")
-    print("Start epoch 0 ...")
-    trainer.evaluate(epoch=0, split='val')
-    trainer.print_performances()
-    trainer.report(epoch=0, split='val')
-    trainer.save_checkpoint(epoch=0, split='val')
-    print("Epoch 0 done.")
+    if trainer.args.onlyTest == False :
 
-    for epoch in range(trainer.args.epochs):
-        print("===========================================================")
-        print("Start epoch {} ...".format(epoch + 1))
-        trainer.adjust_learning_rate(epoch + 1)
-        train_performance = trainer.train(split='train')
-        trainer.report_train(train_performance, epoch + 1, split='train')
-        trainer.evaluate(epoch + 1, split='val')
-        trainer.print_performances()
-        trainer.report(epoch + 1, split='val')
-        trainer.save_checkpoint(epoch + 1, split='val')
-        print("Epoch {} done.".format(epoch + 1))
+        if trainer.args.resume == 'False':
+            print("===========================================================")
+            print("Start epoch 0 ...")
+            trainer.evaluate(epoch=0, split='val')
+            trainer.print_performances()
+            trainer.report(epoch=0, split='val')
+            trainer.save_checkpoint(epoch=0, split='val')
+            print("Epoch 0 done.")
+
+
+        attack = create_attack(attack_method=trainer.args.attack_method.lower(), model=trainer.model, 
+                       epsilon=trainer.args.epsilon, k=trainer.args.k, alpha=trainer.args.alpha, 
+                       mu=trainer.args.mu, random_start=trainer.args.random_start)
+
+
+        for epoch in range(trainer.start_epoch, trainer.args.epochs):
+            print("===========================================================")
+            print("Start epoch {} ...".format(epoch + 1))
+            trainer.adjust_learning_rate(epoch + 1)
+            train_performance = trainer.train(attack, split='train')
+            trainer.report_train(train_performance, epoch + 1, split='train')
+            trainer.evaluate(epoch + 1, split='val')
+            trainer.print_performances()
+            trainer.report(epoch + 1, split='val')
+            trainer.save_checkpoint(epoch + 1, split='val')
+            print("Epoch {} done.".format(epoch + 1))
 
     print("===========================================================")
     print("Final epoch evaluation on test set ...")

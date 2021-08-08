@@ -22,6 +22,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 import munch
 import numpy as np
 import os
+import torch
 from PIL import Image
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -203,8 +204,23 @@ class WSOLImageLabelDataset(Dataset):
 
 
 def get_data_loader(data_roots, metadata_root, batch_size, workers,
-                    resize_size, crop_size, proxy_training_set,
+                    resize_size, crop_size, proxy_training_set, tencrop=False,
                     num_val_sample_per_class=0):
+
+
+    if tencrop :
+        func_transforms = [transforms.Resize((resize_size, resize_size)),
+                           transforms.TenCrop(crop_size),
+                           transforms.Lambda(
+                               lambda crops: torch.stack(
+                                   [transforms.Normalize(_IMAGE_MEAN_VALUE, _IMAGE_STD_VALUE)(transforms.ToTensor()(crop)) for crop in crops])),
+                           ]
+    else:
+        func_transforms = [
+            transforms.Resize((crop_size, crop_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(_IMAGE_MEAN_VALUE, _IMAGE_STD_VALUE)
+        ]
     dataset_transforms = dict(
         train=transforms.Compose([
             transforms.Resize((resize_size, resize_size)),
@@ -218,11 +234,8 @@ def get_data_loader(data_roots, metadata_root, batch_size, workers,
             transforms.ToTensor(),
             transforms.Normalize(_IMAGE_MEAN_VALUE, _IMAGE_STD_VALUE)
         ]),
-        test=transforms.Compose([
-            transforms.Resize((crop_size, crop_size)),
-            transforms.ToTensor(),
-            transforms.Normalize(_IMAGE_MEAN_VALUE, _IMAGE_STD_VALUE)
-        ]))
+        test=transforms.Compose(func_transforms))
+
 
     loaders = {
         split: DataLoader(

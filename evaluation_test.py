@@ -93,8 +93,7 @@ class EvalUtilTest(unittest.TestCase):
     def test_compute_bboxes_from_scoremaps_degenerate(self):
         scoremap = np.zeros([3, 3], dtype=np.float)
         scoremap_threshold_list = np.arange(0, 1, 0.2)
-        boxes = compute_bboxes_from_scoremaps(scoremap, scoremap_threshold_list)[0]
-        boxes = [box[0].tolist() for box in boxes]
+        boxes = compute_bboxes_from_scoremaps(scoremap, scoremap_threshold_list)
         self.assertListEqual(boxes, [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
                                      [0, 0, 0, 0], [0, 0, 0, 0]])
 
@@ -106,8 +105,7 @@ class EvalUtilTest(unittest.TestCase):
                              [0.0, 0.4, 0.4, 0.4, 0.6]],
                             dtype=np.float)
         scoremap_threshold_list = np.arange(0, 1, 0.2)
-        boxes = compute_bboxes_from_scoremaps(scoremap, scoremap_threshold_list)[0]
-        boxes = [box[0].tolist() for box in boxes]
+        boxes = compute_bboxes_from_scoremaps(scoremap, scoremap_threshold_list)
         self.assertListEqual(boxes, [[1, 1, 4, 3],
                                      [1, 1, 4, 3],
                                      [2, 1, 4, 3],
@@ -122,8 +120,7 @@ class EvalUtilTest(unittest.TestCase):
                              [1.0, 0.6, 0.8, 0.2, 0.2]],
                             dtype=np.float)
         scoremap_threshold_list = np.arange(0, 1, 0.2)
-        boxes = compute_bboxes_from_scoremaps(scoremap, scoremap_threshold_list)[0]
-        boxes = [box[0].tolist() for box in boxes]
+        boxes = compute_bboxes_from_scoremaps(scoremap, scoremap_threshold_list)
         self.assertListEqual(boxes, [[0, 0, 4, 3],
                                      [0, 0, 2, 2],
                                      [0, 3, 3, 3],

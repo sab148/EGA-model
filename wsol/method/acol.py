@@ -32,10 +32,11 @@ class AcolBase(nn.Module):
 
 def _erase_attention(feature, attention, drop_threshold):
     b, _, h, w = attention.size()
+    attention1 = 1 - attention
     pos = torch.ge(attention, drop_threshold)
     mask = attention.new_ones((b, 1, h, w))
     mask[pos.data] = 0.
-    erased_feature = feature * mask
+    erased_feature = feature * attention1 #mask
     return erased_feature
 
 

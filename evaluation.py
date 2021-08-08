@@ -23,7 +23,6 @@ import argparse
 import cv2
 import numpy as np
 import os
-from os.path import join as ospj
 import torch.utils.data as torchdata
 
 from config import str2bool
@@ -236,7 +235,7 @@ class BoxEvaluator(LocalizationEvaluator):
             for image_id in self.image_ids}
         return resized_bbox
 
-    def accumulate(self, scoremap, image_id):
+    def accumulate(self, scoremap, image_id, dessin):
         """
         From a score map, a box is inferred (compute_bboxes_from_scoremaps).
         The box is compared against GT boxes. Count a scoremap as a correct
@@ -251,35 +250,106 @@ class BoxEvaluator(LocalizationEvaluator):
             scoremap=scoremap,
             scoremap_threshold_list=self.cam_threshold_list,
             multi_contour_eval=self.multi_contour_eval)
-
+        boxes = boxes_at_thresholds.copy()
+       # print('self.gt_bboxes', self.gt_bboxes)
+        #print('boxes_at_thresholds', boxes_at_thresholds)
         boxes_at_thresholds = np.concatenate(boxes_at_thresholds, axis=0)
 
         multiple_iou = calculate_multiple_iou(
             np.array(boxes_at_thresholds),
             np.array(self.gt_bboxes[image_id]))
-
+        #print('multiple_iou', multiple_iou)  
         idx = 0
         sliced_multiple_iou = []
         for nr_box in number_of_box_list:
+
             sliced_multiple_iou.append(
                 max(multiple_iou.max(1)[idx:idx + nr_box]))
             idx += nr_box
-
+        indx = sliced_multiple_iou.index(max(sliced_multiple_iou))
+        #print('boxes_at_thresholds_idx',boxes[indx])
+#        if dessin:
+ #           self.save_img(scoremap,boxes[indx], image_id)
+        #print('boxes_at_thresholds_idx', boxes_at_thresholds_idx)
+        #print('multiple_iou', len(multiple_iou))       
+        #print('multiple_iou', multiple_iou)     
+        #print('sliced_multiple_iou', len(multiple_iou))
         for _THRESHOLD in self.iou_threshold_list:
             correct_threshold_indices = \
                 np.where(np.asarray(sliced_multiple_iou) >= (_THRESHOLD/100))[0]
             self.num_correct[_THRESHOLD][correct_threshold_indices] += 1
-        self.cnt += 1
+        #self.cnt += 1
 
-    def compute(self):
+        #save_im_heatmap_box(image_ids, scoremap, top5_boxes, '../figs/', gt_label=label.cpu().data.long().numpy(), gt_box=gt_boxes[idx])
+
+
+    def save_img(self, scoremap, boxes, image_id):
+        save_dir = '/figs/'
+        gt_box = self.original_bboxes[image_id][0]
+        #print('gt_box', gt_box)
+        multiple_iou = calculate_multiple_iou(
+        np.array(boxes),
+        np.array(self.gt_bboxes[image_id]))
+        img_id = '/media/narimene/fichiers/CUB/' + image_id 
+        #print('image', image_id)
+        im = cv2.imread(img_id)
+        h, w, _ = np.shape(im)
+        indx = np.where(multiple_iou.max(1) == max(multiple_iou.max(1)))
+        #print('boxes', boxes)
+        #print('indx', indx)
+        box = boxes[indx]
+        x0, y0, x1, y1 = box[0][0], box[0][1], box[0][2], box[0][3]
+        #print('box',box)
+        draw_im = 255 * np.ones((h + 15, w, 3), np.uint8)
+        draw_im[:h, :, :] = im
+        #print('draw_im', draw_im.shape)
+        scoremap = cv2.resize(scoremap, dsize=(w, h))
+        heatmap = cv2.applyColorMap(np.uint8(255 * scoremap), cv2.COLORMAP_JET)
+        draw_im[:h, :, :] = heatmap * 0.3 + draw_im[:h, :, :] * 0.7
+        x0, y0, x1, y1 = self.resize_pred_bbox(box, self.image_sizes[image_id], (self.resize_length, self.resize_length))
+        cv2.rectangle(draw_im, (x0, y0), (x1, y1), color=(255, 0, 0), thickness=2)
+        cv2.rectangle(draw_im, (gt_box[0], gt_box[1]), (gt_box[2], gt_box[3]), color=(0, 0, 255), thickness=2)
+        #if not os.path.exists(save_dir):
+        #    os.makedirs(save_dir)
+        #print('f', os.path.join('/figs', image_id.split('/')[-1]))
+        cv2.imwrite(os.path.join('/media/narimene/fichiers/EGA/figs/', image_id.split('/')[-1]), draw_im)
+
+
+    def resize_pred_bbox(self, box, image_size, resize_size):
+        """
+        Args:
+            box: iterable (ints) of length 4 (x0, y0, x1, y1)
+            image_size: iterable (ints) of length 2 (width, height)
+            resize_size: iterable (ints) of length 2 (width, height)
+
+        Returns:
+             new_box: iterable (ints) of length 4 (x0, y0, x1, y1)
+        """
+        check_box_convention(np.array(box), 'x0y0x1y1')
+        box_x0 = float(box[0][0])
+        box_y0 = float(box[0][1])
+        box_x1 = float(box[0][2])
+        box_y1 = float(box[0][3])
+        image_w, image_h = map(float, image_size)
+        new_image_w, new_image_h = map(float, resize_size)
+
+        orgbox_x0 = box_x0 / (new_image_w / image_w)
+        orgbox_y0 = box_y0 / (new_image_h / image_h)
+        orgbox_x1 = box_x1 / (new_image_w / image_w)
+        orgbox_y1 = box_y1 / (new_image_h / image_h)
+        return int(orgbox_x0), int(orgbox_y0), int(orgbox_x1), int(orgbox_y1)
+
+
+    def compute(self, cnt):
         """
         Returns:
             max_localization_accuracy: float. The ratio of images where the
                box prediction is correct. The best scoremap threshold is taken
                for the final performance.
+
         """
         max_box_acc = []
-
+        self.cnt = cnt
         for _THRESHOLD in self.iou_threshold_list:
             localization_accuracies = self.num_correct[_THRESHOLD] * 100. / \
                                       float(self.cnt)
@@ -296,14 +366,19 @@ def load_mask_image(file_path, resize_size):
     Returns:
         mask: numpy.ndarray(dtype=numpy.float32, shape=(height, width))
     """
-    mask = np.float32(cv2.imread(file_path, cv2.IMREAD_GRAYSCALE))
+    #print('file_path', file_path)
+    #print('cv', cv2.imread(file_path, cv2.IMREAD_GRAYSCALE))
+    mask = np.float32(cv2.imread('/media/narimene/fichiers/'+file_path, cv2.IMREAD_GRAYSCALE))
+    #print('mask', mask)
+    #print('resize_size', resize_size)
     mask = cv2.resize(mask, resize_size, interpolation=cv2.INTER_NEAREST)
+   
     return mask
 
 
 def get_mask(mask_root, mask_paths, ignore_path):
     """
-    Ignore mask is set as the ignore box region \setminus the ground truth
+    Ignore mask is set as the ignore box region setminus the ground truth
     foreground region.
 
     Args:
@@ -353,7 +428,7 @@ class MaskEvaluator(LocalizationEvaluator):
         self.gt_true_score_hist = np.zeros(self.num_bins, dtype=np.float)
         self.gt_false_score_hist = np.zeros(self.num_bins, dtype=np.float)
 
-    def accumulate(self, scoremap, image_id):
+    def accumulate(self, scoremap, image_id, dessin):
         """
         Score histograms over the score map values at GT positive and negative
         pixels are computed.
@@ -366,18 +441,67 @@ class MaskEvaluator(LocalizationEvaluator):
         gt_mask = get_mask(self.mask_root,
                            self.mask_paths[image_id],
                            self.ignore_paths[image_id])
-
+        #print('scoremap', scoremap)
+        #print('gt_mask', gt_mask)
         gt_true_scores = scoremap[gt_mask == 1]
         gt_false_scores = scoremap[gt_mask == 0]
-
+        
         # histograms in ascending order
+        
         gt_true_hist, _ = np.histogram(gt_true_scores,
                                        bins=self.threshold_list_right_edge)
+
+        self.save_img(scoremap, gt_mask, image_id, gt_true_hist)
         self.gt_true_score_hist += gt_true_hist.astype(np.float)
 
         gt_false_hist, _ = np.histogram(gt_false_scores,
                                         bins=self.threshold_list_right_edge)
         self.gt_false_score_hist += gt_false_hist.astype(np.float)
+
+
+    def save_img(self, scoremap, gt_mask, image_id, gt_true_hist):
+        save_dir = '/figs/'
+        img_id = '/media/narimene/fichiers/OpenImages/' + image_id 
+
+        im = cv2.imread(img_id)
+        h, w, _ = np.shape(im)
+        #pred = scoremap
+        scoremap = cv2.resize(scoremap, dsize=(w, h))
+        gt_mask = cv2.resize(gt_mask, dsize=(w, h))
+        
+        #gt_true_hist.max(1).index()
+        idx = np.argmax(gt_true_hist)
+        th = self.threshold_list_right_edge[idx]
+        pos = np.greater(scoremap, th)
+
+        pred = np.zeros(im.shape)
+
+        gt = np.zeros(im.shape)
+        gt_pos = np.not_equal(gt_mask, 0)
+
+        
+        pred[:,:,0][pos] = 0
+        pred[:,:,1][pos] = 0
+        pred[:,:,2][pos] = 255
+
+        gt[:,:,0][gt_pos] = 255
+        gt[:,:,1][gt_pos] = 255
+        gt[:,:,2][gt_pos] = 0
+        # pred = scoremap * mask 
+        
+        draw_im = 255 * np.ones((h + 15, w, 3), np.uint8)
+        draw_im[:h, :, :] = im
+ 
+        draw_im[:h, :, :] = draw_im[:h, :, :] * 0.5 + pred * 0.3 + gt * 0.2 # + gt_heatmap * 0.2
+    
+        #if not os.path.exists(save_dir):
+        #    os.makedirs(save_dir)
+        #print('f', os.path.join('/figs', image_id.split('/')[-1]))
+        cv2.imwrite(os.path.join('/media/narimene/fichiers/EGA/figs/', image_id.split('/')[-1]), draw_im)
+
+
+
+
 
     def compute(self):
         """
@@ -462,8 +586,7 @@ def evaluate_wsol(scoremap_root, metadata_root, mask_root, dataset_name, split,
             is returned.
     """
     print("Loading and evaluating cams.")
-    meta_path = os.path.join(metadata_root, dataset_name, split)
-    metadata = configure_metadata(meta_path)
+    metadata = configure_metadata(metadata_root)
     image_ids = get_image_ids(metadata)
     cam_threshold_list = list(np.arange(0, 1, cam_curve_interval))
 
@@ -474,7 +597,7 @@ def evaluate_wsol(scoremap_root, metadata_root, mask_root, dataset_name, split,
                                  dataset_name=dataset_name,
                                  split=split,
                                  cam_threshold_list=cam_threshold_list,
-                                 mask_root=ospj(mask_root, 'OpenImages'),
+                                 mask_root=mask_root,
                                  multi_contour_eval=multi_contour_eval,
                                  iou_threshold_list=iou_threshold_list)
 
@@ -487,8 +610,6 @@ def evaluate_wsol(scoremap_root, metadata_root, mask_root, dataset_name, split,
         performance = np.average(performance)
     else:
         performance = performance[iou_threshold_list.index(50)]
-
-    print('localization: {}'.format(performance))
     return performance
 
 

@@ -1,3 +1,4 @@
+
 """
 Copyright (c) 2020-present NAVER Corp.
 
@@ -21,15 +22,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import cv2
 import numpy as np
-import os
-from os.path import join as ospj
-from os.path import dirname as ospd
-
+import torch.nn.functional as F
 from evaluation import BoxEvaluator
 from evaluation import MaskEvaluator
 from evaluation import configure_metadata
 from util import t2n
-
+import pickle
 _IMAGENET_MEAN = [0.485, .456, .406]
 _IMAGENET_STDDEV = [.229, .224, .225]
 _RESIZE_LENGTH = 224
@@ -54,18 +52,16 @@ def normalize_scoremap(cam):
 
 class CAMComputer(object):
     def __init__(self, model, loader, metadata_root, mask_root,
-                 iou_threshold_list, dataset_name, split,
-                 multi_contour_eval, cam_curve_interval=.001, log_folder=None):
+                 iou_threshold_list, dataset_name, split, 
+                 multi_contour_eval, tencrop=False, cam_curve_interval=.001):
         self.model = model
         self.model.eval()
         self.loader = loader
-        self.split = split
-        self.log_folder = log_folder
-
+        self.tencrop=tencrop
         metadata = configure_metadata(metadata_root)
         cam_threshold_list = list(np.arange(0, 1, cam_curve_interval))
 
-        self.evaluator = {"OpenImages": MaskEvaluator,
+        self.evaluator_1 = {"OpenImages": MaskEvaluator,
                           "CUB": BoxEvaluator,
                           "ILSVRC": BoxEvaluator
                           }[dataset_name](metadata=metadata,
@@ -76,20 +72,52 @@ class CAMComputer(object):
                                           mask_root=mask_root,
                                           multi_contour_eval=multi_contour_eval)
 
+        self.evaluator_5 = {"OpenImages": MaskEvaluator,
+                          "CUB": BoxEvaluator,
+                          "ILSVRC": BoxEvaluator
+                          }[dataset_name](metadata=metadata,
+                                          dataset_name=dataset_name,
+                                          split=split,
+                                          cam_threshold_list=cam_threshold_list,
+                                          iou_threshold_list=iou_threshold_list,
+                                          mask_root=mask_root,
+                                          multi_contour_eval=multi_contour_eval)
+
+    
+    def compute_accumulate(self, cam, image_size, image_id, evaluator=self.evaluator_1):
+    
+        cam_resized = cv2.resize(cam, image_size, interpolation=cv2.INTER_CUBIC)
+        cam_normalized = normalize_scoremap(cam_resized)                
+        if i % 70 == 0:
+          dessin = True
+        else :
+          dessin = False
+        evaluator.accumulate(cam_normalized, image_id, dessin)
+
     def compute_and_evaluate_cams(self):
         print("Computing and evaluating cams.")
+        cnt = 0
+        pred_prob = []
+        with open('pred_prob.pkl', 'rb')  as f :
+            pred_prob = pickle.load(f)
         for images, targets, image_ids in self.loader:
             image_size = images.shape[2:]
+
             images = images.cuda()
-            cams = t2n(self.model(images, targets, return_cam=True))
-            for cam, image_id in zip(cams, image_ids):
-                cam_resized = cv2.resize(cam, image_size,
-                                         interpolation=cv2.INTER_CUBIC)
-                cam_normalized = normalize_scoremap(cam_resized)
-                if self.split in ('val', 'test'):
-                    cam_path = ospj(self.log_folder, 'scoremaps', image_id)
-                    if not os.path.exists(ospd(cam_path)):
-                        os.makedirs(ospd(cam_path))
-                    np.save(ospj(cam_path), cam_normalized)
-                self.evaluator.accumulate(cam_normalized, image_id)
-        return self.evaluator.compute()
+            targets = targets.cuda()
+            cams, pred = self.model(images, targets, return_cam=True)
+
+            pred = pred.argmax(dim=1)
+            pred = output_dict['logits'].argmax(dim=1)
+            cams = t2n(cams)
+            for i , (cam, image_id) in enumerate(zip(cams, image_ids)):
+                cnt += 1
+                if pred_prob[cnt-1] == targets[i] :
+                    self.compute_accumulate(cam, image_size, image_id, self.evaluator_1)                
+
+                if targets[i] in pred_prob:
+                    self.compute_accumulate(cam, image_size, image_id, self.evaluator_5)
+
+                
+
+        return self.evaluator_1.compute(cnt), self.evaluator_5.compute(cnt)

@@ -134,7 +134,7 @@ class InceptionC(nn.Module):
 class InceptionCam(nn.Module):
     def __init__(self, num_classes=1000, large_feature_map=False, **kwargs):
         super(InceptionCam, self).__init__()
-
+        print('llarge_feature_map',large_feature_map)
         self.large_feature_map = large_feature_map
 
         self.Conv2d_1a_3x3 = BasicConv2d(3, 32, 3, stride=2, padding=1)
@@ -199,12 +199,15 @@ class InceptionCam(nn.Module):
         logits = self.avgpool(feat_map)
         logits = logits.view(logits.shape[0:2])
 
-        if return_cam:
-            feature_map = feat_map.clone().detach()
-            cams = feature_map[range(batch_size), labels]
-            return cams
+        feature_map = feat_map.clone().detach()
+        cams = feature_map[range(batch_size), labels]
+           
 
-        return {'logits': logits}
+        if return_cam:
+            
+            return cams, logits
+
+        return {'logits': logits, 'cams': cams}
 
     def get_loss(self, logits, target):
         loss_cls = nn.CrossEntropyLoss()(logits, target.long())
