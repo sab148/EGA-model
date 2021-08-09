@@ -66,7 +66,7 @@ python main_adv_ent.py --dataset_name OpenImages
                        --k=1  
 ```
 
-Below is an example command line for the eval script with the average of the scores from the softmax layer with 10 crops..
+Below is an example command line for the eval script with the average of the scores from the softmax layer with 10 crops.
 ```bash
 python main_adv_ent.py --dataset_name OpenImages             
                        --architecture vgg16               
