@@ -19,7 +19,7 @@ our model as well as detect more discriminative visual pattern on the CAM. We fu
 model during training. Minimizing the entropy loss forces the model to generate a high-confident CAM. The high-confident CAM detects the whole object
 while excludes the background. Extensive experiments show that EGA model improves classification and localization performances on state-of-the-art bench-
 marks. Ablation experiments also show that both the adversarial learning and the entropy loss contribute to the algorithm performance.
-<img src="a.png" width="60%" height="60%" title="" alt="RubberDuck"></img>
+![a](https://user-images.githubusercontent.com/46344689/128652801-312661e1-e552-49f2-b2f7-4011b4c47d9f.png)
 
 ## 1. Code dependencies
 
