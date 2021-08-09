@@ -19,22 +19,7 @@ our model as well as detect more discriminative visual pattern on the CAM. We fu
 model during training. Minimizing the entropy loss forces the model to generate a high-confident CAM. The high-confident CAM detects the whole object
 while excludes the background. Extensive experiments show that EGA model improves classification and localization performances on state-of-the-art bench-
 marks. Ablation experiments also show that both the adversarial learning and the entropy loss contribute to the algorithm performance.
-<img src="teaser.png" width="60%" height="60%" title="" alt="RubberDuck"></img>
-
-__Overview of WSOL performances 2016-2019.__ Above image shows that recent improvements in WSOL are 
-illusory due to (1) different amount of implicit full supervision through 
-validation and (2) a fixed score-map threshold to generate object boxes. Under 
-our evaluation protocol with the same validation set sizes and oracle threshold 
-for each method, CAM is still the best. In fact, our few-shot learning baseline, 
-i.e., using the validation supervision (10 samples/class) at training time, 
-outperforms existing WSOL methods.
-
-## Updates
-
-- __9 Jul, 2020__: [Journal submission](https://arxiv.org/abs/2007.04178) available.
-- __27 Mar, 2020__: [New WSOL evaluations](#5-library-of-wsol-methods) with `MaxBoxAccV2` are added.
-- __28 Feb, 2020__: [New box evaluation](#improved-box-evaluation) (`MaxBoxAccV2`) is available.
-- __22 Jan, 2020__: Initial upload.
+<img src="a.png" width="60%" height="60%" title="" alt="RubberDuck"></img>
 
 
 ## Table of contents 
@@ -64,7 +49,7 @@ outperforms existing WSOL methods.
 * [7. Code license](#7-code-license)
 * [8. How to cite](#5-how-to-cite)
 
-## 3. Code dependencies
+## 1. Code dependencies
 
 To run the model, the scripts require only the following libraries: 
 * [OpenCV](https://opencv.org/)
@@ -82,7 +67,7 @@ torch==1.4.0
 torchvision==0.5.0
 ```
 
-## 4. WSOL training and evaluation
+## 2. WSOL training and evaluation
 
 Follow https://github.com/clovaai/wsolevaluation to prepare the datasets.
 
@@ -138,7 +123,7 @@ python main_adv_ent.py --dataset_name OpenImages
 See [config.py](config.py) for the full descriptions of the arguments, especially 
 the method-specific hyperparameters.
 
-## 5. How to cite
+## 3. How to cite
 
 ```
 @article{EGA_model,
