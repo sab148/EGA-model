@@ -90,12 +90,49 @@ Follow https://github.com/clovaai/wsolevaluation to prepare the datasets.
 
 Below is an example command line for the train+eval script.
 ```bash
-python main_adv_ent.py --dataset_name OpenImages             --architecture vgg16               --wsol_method cam               --experiment_name OpenImages_vgg_ent_adv2               --pretrained TRUE                --num_val_sample_per_class 5                --large_feature_map False                --batch_size 1                --epochs 10                --lr 0.001               --lr_decay_frequency 3               --weight_decay 5.00E-04                --override_cache FALSE                --workers 4                --box_v2_metric False                --iou_threshold_list 50                --eval_checkpoint_type last  --epsilon 1   --k=1  
+python main_adv_ent.py --dataset_name OpenImages             
+                       --architecture vgg16              
+                       --wsol_method cam               
+                       --experiment_name OpenImages_vgg_ent_adv2               
+                       --pretrained TRUE                
+                       --num_val_sample_per_class 5                
+                       --large_feature_map False               
+                       --batch_size 1                
+                       --epochs 10                
+                       --lr 0.001               
+                       --lr_decay_frequency 3               
+                       --weight_decay 5.00E-04                
+                       --override_cache FALSE                
+                       --workers 4                
+                       --box_v2_metric False                
+                       --iou_threshold_list 50                
+                       --eval_checkpoint_type last  
+                       --epsilon 1   
+                       --k=1  
 ```
 
 Below is an example command line for the eval script with the average of the scores from the softmax layer with 10 crops..
 ```bash
-python main_adv_ent.py --dataset_name OpenImages             --architecture vgg16               --wsol_method cam               --experiment_name OpenImages_vgg_ent_adv2               --pretrained TRUE                --num_val_sample_per_class 5                --large_feature_map False                --batch_size 1                --epochs 10                --lr 0.001               --lr_decay_frequency 3               --weight_decay 5.00E-04                --override_cache FALSE                --workers 4                --box_v2_metric False                --iou_threshold_list 50                --eval_checkpoint_type last  --onlyTest True --resume True --tencrop True
+python main_adv_ent.py --dataset_name OpenImages             
+                       --architecture vgg16               
+                       --wsol_method cam               
+                       --experiment_name OpenImages_vgg_ent_adv2               
+                       --pretrained TRUE                
+                       --num_val_sample_per_class 5                
+                       --large_feature_map False                
+                       --batch_size 1                
+                       --epochs 10                
+                       --lr 0.001               
+                       --lr_decay_frequency 3               
+                       --weight_decay 5.00E-04                
+                       --override_cache FALSE                
+                       --workers 4                
+                       --box_v2_metric False                
+                       --iou_threshold_list 50                
+                       --eval_checkpoint_type last  
+                       --onlyTest True 
+                       --resume True 
+                       --tencrop True
 ```
 
 See [config.py](config.py) for the full descriptions of the arguments, especially 
