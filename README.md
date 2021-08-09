@@ -62,7 +62,7 @@ outperforms existing WSOL methods.
     + [Run train+eval](#run-traineval)
     + [Improved box evaluation](#improved-box-evaluation)
 * [7. Code license](#7-code-license)
-* [8. How to cite](#8-how-to-cite)
+* [8. How to cite](#5-how-to-cite)
 
 ## 3. Code dependencies
 
