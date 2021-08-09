@@ -21,34 +21,6 @@ while excludes the background. Extensive experiments show that EGA model improve
 marks. Ablation experiments also show that both the adversarial learning and the entropy loss contribute to the algorithm performance.
 <img src="a.png" width="60%" height="60%" title="" alt="RubberDuck"></img>
 
-
-## Table of contents 
-
-* [1. Our dataset contribution](#1-our-dataset-contribution)
-    + [The dataset splits](#the-dataset-splits)
-* [2. Dataset downloading and license](#2-dataset-downloading-and-license)
-    + [ImageNetV2](#imagenetv2)
-    + [CUBV2](#cubv2)
-    + [OpenImages30k](#openimages30k)
-    + [Dataset statistics](#dataset-statistics)
-    + [Licenses](#licenses)
-* [3. Code dependencies](#3-code-dependencies)
-* [4. WSOL evaluation](#4-wsol-evaluation)
-    + [Prepare evaluation data](#prepare-evaluation-data)
-    + [Prepare heatmaps to evaluate](#prepare-heatmaps-to-evaluate)
-    + [Evaluate your heatmaps](#evaluate-your-heatmaps)
-    + [Testing the evaluation code](#testing-the-evaluation-code)
-* [5. Library of WSOL methods](#5-library-of-wsol-methods)
-* [6. WSOL training and evaluation](#6-wsol-training-and-evaluation)
-    + [Prepare train+eval datasets](#prepare-traineval-datasets)
-        - [ImageNet](#imagenet)
-        - [CUB](#cub)
-        - [OpenImages](#openimages)
-    + [Run train+eval](#run-traineval)
-    + [Improved box evaluation](#improved-box-evaluation)
-* [7. Code license](#7-code-license)
-* [8. How to cite](#5-how-to-cite)
-
 ## 1. Code dependencies
 
 To run the model, the scripts require only the following libraries: 
