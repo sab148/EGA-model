@@ -2,7 +2,7 @@
 
 [Neurocomputing 2020 paper](https://www.sciencedirect.com/science/article/abs/pii/S0925231220317331) 
 
-Sabrina Narimene Benassou<sup>1*</sup>, Wuzhen Shi<sup>2*</sup>, Feng Jiang<sup>1</sup>
+Sabrina Narimene Benassou<sup>1</sup>, Wuzhen Shi<sup>2</sup>, Feng Jiang<sup>1</sup>
 
 
 <sup>1</sup> <sub>School of Computer Science and Technology, Harbin Institute of Technology</sub>  
