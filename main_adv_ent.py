@@ -63,23 +63,6 @@ class PerformanceMeter(object):
         self.best_value = self.best_function(self.value_per_epoch)
         self.best_epoch = self.value_per_epoch.index(self.best_value)
 
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
 
 class Trainer(object):
     _CHECKPOINT_NAME_TEMPLATE = '{}_checkpoint.pth.tar'
@@ -154,6 +137,7 @@ class Trainer(object):
 
 
         if self.args.split_bn:
+            print("ok",num_aug_splits)
             assert num_aug_splits > 1 or self.args.resplit
             model = convert_splitbn_model(model, max(num_aug_splits, 2), self.args.batch_size)
 
@@ -204,13 +188,17 @@ class Trainer(object):
             output: batch_size x 1 x h x w
         """
         n, h, w = v.size()
+#        print('v',v.size())
         f = int(n/2)
         adv = v[f:,:,:]
         clean = v[:f,:,:]
+#        print('f', f)
+#        print('v+', v[:f,:,:].size())
         c = 2
+#        return -torch.mean(torch.pow(v, 2)) / 2
         p = -torch.sum(torch.mul(adv, torch.log2(adv + 1e-30)))  / (n * h * w)
         b = -torch.sum(torch.mul(clean, torch.log2(clean + 1e-30)))  / (n * h * w)
-        return args.lambda_c*b + args.lambda_a*p
+        return 1*b + 0.01*p
 
     def prepare_ent(self, cams, image_size):
         cams = t2n(cams)
@@ -249,16 +237,18 @@ class Trainer(object):
 
         output_dict = self.model(images, target)
         logits = output_dict['logits']
+#        print('cams', output_dict['cams'].size())
         ent = self.prepare_ent(output_dict['cams'], images.shape[2:])
-
+#        print('ent', ent)
+#        print('ent', ent )
         if self.args.wsol_method in ('acol', 'spg'):
             loss = wsol.method.__dict__[self.args.wsol_method].get_loss(
                 output_dict, target, spg_thresholds=self.args.spg_thresholds)
         else:
             loss = self.cross_entropy_loss(logits, target)
 
-        loss = loss + (self.args.lambda1 * ent)
-	
+        loss = loss# + (self.args.lambda1 * ent)
+    
         return logits, loss
 
     def train(self, attack, split):
@@ -325,73 +315,39 @@ class Trainer(object):
         with open(log_path, 'wb') as f:
             pickle.dump(self.performance_meters, f)
 
-
-
-    def accuracy(logits, target, topk=(1,)):
-        """
-        Compute the top k accuracy of classification results.
-        :param target: the ground truth label
-        :param topk: tuple or list of the expected k values.
-        :return: A list of the accuracy values. The list has the same lenght with para: topk
-        """
-        maxk = max(topk)
-        batch_size = target.size(0)
-        scores = logits
-
-        _, pred = scores.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
-
-
     def _compute_accuracy(self, loader):
-
-        top1_clsacc = AverageMeter()
-        top1_locerr = AverageMeter()
-        top1_clsacc.reset()
-        top1_locerr.reset()
         num_correct = 0
         num_images = 0
         pred_prob=[]
         for i, (images, targets, image_ids) in enumerate(loader):
+         #   print(i)
             if self.args.tencrop :
                 bs, ncrops, c, h, w = images.size()
                 images = images.view(-1, c, h, w)
                 label_input = targets.repeat(10, 1)
                 targets = label_input.view(-1)
-			
-			
-
+            
+            
             images = images.cuda()
             targets = targets.cuda()
             output_dict = self.model(images,targets)
-			
+            
             if self.args.tencrop :
                 output_dict['logits'] = F.softmax(output_dict['logits'], dim=1)
                 output_dict['logits'] = output_dict['logits'].view(1, ncrops, -1).mean(1)
-
+            
 
             pred = output_dict['logits'].argmax(dim=1)
-
-            prec1_1, prec5_1 = self.accuracy(pred, targets.long(), topk=(1, 5))
-            top1_clsacc.update(prec1_1[0].numpy(), images.size(0))
-            top5_clsacc.update(prec5_1[0].numpy(), images.size(0))
-            
             pred_prob.append(pred)
             num_correct += (pred == targets).sum().item()
             num_images += images.size(0)
 
         classification_acc = num_correct / float(num_images) * 100
         with open('pred_prob.pkl', 'wb') as f :
-            pickle.dump(pred_prob, f)
-        return top1_clsacc.avg, top5_clsacc.avg
+             pickle.dump(pred_prob, f)
+        return classification_acc
 
-		
+        
     def evaluate(self, epoch, split):
         print("Evaluate epoch {}, split {}".format(epoch, split))
         self.model.eval()
@@ -399,7 +355,7 @@ class Trainer(object):
         accuracy = self._compute_accuracy(loader=self.loaders[split])
         self.performance_meters[split]['classification'].update(accuracy)
         self.args.tencrop=False
-		
+        
         self.loaders = get_data_loader(
             data_roots=self.args.data_paths,
             metadata_root=self.args.metadata_root,
@@ -410,7 +366,7 @@ class Trainer(object):
             proxy_training_set=self.args.proxy_training_set,
             tencrop=self.args.tencrop,
             num_val_sample_per_class=self.args.num_val_sample_per_class)
-			
+            
         cam_computer = CAMComputer(
             model=self.model,
             loader=self.loaders[split],

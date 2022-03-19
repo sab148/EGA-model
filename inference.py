@@ -61,7 +61,7 @@ class CAMComputer(object):
         metadata = configure_metadata(metadata_root)
         cam_threshold_list = list(np.arange(0, 1, cam_curve_interval))
 
-        self.evaluator_1 = {"OpenImages": MaskEvaluator,
+        self.evaluator = {"OpenImages": MaskEvaluator,
                           "CUB": BoxEvaluator,
                           "ILSVRC": BoxEvaluator
                           }[dataset_name](metadata=metadata,
@@ -71,28 +71,6 @@ class CAMComputer(object):
                                           iou_threshold_list=iou_threshold_list,
                                           mask_root=mask_root,
                                           multi_contour_eval=multi_contour_eval)
-
-        self.evaluator_5 = {"OpenImages": MaskEvaluator,
-                          "CUB": BoxEvaluator,
-                          "ILSVRC": BoxEvaluator
-                          }[dataset_name](metadata=metadata,
-                                          dataset_name=dataset_name,
-                                          split=split,
-                                          cam_threshold_list=cam_threshold_list,
-                                          iou_threshold_list=iou_threshold_list,
-                                          mask_root=mask_root,
-                                          multi_contour_eval=multi_contour_eval)
-
-    
-    def compute_accumulate(self, cam, image_size, image_id, evaluator=self.evaluator_1):
-    
-        cam_resized = cv2.resize(cam, image_size, interpolation=cv2.INTER_CUBIC)
-        cam_normalized = normalize_scoremap(cam_resized)                
-        if i % 70 == 0:
-          dessin = True
-        else :
-          dessin = False
-        evaluator.accumulate(cam_normalized, image_id, dessin)
 
     def compute_and_evaluate_cams(self):
         print("Computing and evaluating cams.")
@@ -108,16 +86,20 @@ class CAMComputer(object):
             cams, pred = self.model(images, targets, return_cam=True)
 
             pred = pred.argmax(dim=1)
-            pred = output_dict['logits'].argmax(dim=1)
             cams = t2n(cams)
+ #           print('cams', cams.shape)
             for i , (cam, image_id) in enumerate(zip(cams, image_ids)):
                 cnt += 1
-                if pred_prob[cnt-1] == targets[i] :
-                    self.compute_accumulate(cam, image_size, image_id, self.evaluator_1)                
-
-                if targets[i] in pred_prob:
-                    self.compute_accumulate(cam, image_size, image_id, self.evaluator_5)
-
-                
-
-        return self.evaluator_1.compute(cnt), self.evaluator_5.compute(cnt)
+#                print('pred', pred[i])
+ ##               print('tar', targets[i])
+                if pred_prob[cnt-1] != targets[i] :
+                  continue
+#                print('cam', cam.shape)
+                cam_resized = cv2.resize(cam, image_size, interpolation=cv2.INTER_CUBIC)
+                cam_normalized = normalize_scoremap(cam_resized)                
+                if i % 70 == 0:
+                  dessin = True
+                else :
+                  dessin = False
+                self.evaluator.accumulate(cam_normalized, image_id, dessin)
+        return self.evaluator.compute(cnt)
