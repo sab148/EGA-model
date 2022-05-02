@@ -1,4 +1,4 @@
-## Evaluating Weakly Supervised Object Localization Methods Right (CVPR 2020)
+## Entropy guided adversarial model for weakly supervised object localization
 
 [Neurocomputing 2020 paper](https://www.sciencedirect.com/science/article/abs/pii/S0925231220317331) 
 
