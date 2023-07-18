@@ -120,29 +120,14 @@ class ResNetCam(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=stride_l3)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=1)
-        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion , num_classes)
 
         initialize_weights(self.modules(), init_mode='xavier')
 
 
 
-        ####### PCB ##############
-
-        self.part = 4 # We cut the pool5 to 3 parts
-        # model_ft = models.resnet50(pretrained=True)
-        # self.model = model_ft
-        self.avgpool = nn.AdaptiveAvgPool2d((self.part,1))
-        self.dropout = nn.Dropout(p=0.5)
-        # remove the final downsample
-        self.layer4[0].downsample[0].stride = (1,1)
-        self.layer4[0].conv2.stride = (1,1)
-        # define 3 classifiers
-        for i in range(self.part):
-            name = 'classifier'+str(i)
-            setattr(self, name, ClassBlock(2048, num_classes, droprate=0.5, relu=False, bnorm=True, num_bottleneck=512, return_f=True))
-
-
+ 
     def forward(self, x, labels=None, return_cam=False):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -154,37 +139,10 @@ class ResNetCam(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         
-        print('x', x.shape)
-        # pre_logit = self.avgpool(x)
-        # pre_logit = pre_logit.reshape(pre_logit.size(0), -1)
-        # logits = self.fc(pre_logit)
-
-        rslt = self.avgpool(x)
-        print(rslt.shape)
-        rslt = self.dropout(rslt)
-
-        print('rslt', rslt.shape)
-        part = {}
-        predict = {}
-        clsi = {}
-        # get six part feature batchsize*2048*6
-        for i in range(self.part):
-            part[i] = torch.squeeze(rslt[:,:,i])
-            name = 'classifier'+str(i)
-            c = getattr(self,name)
-            #self.fc = c.prediction[0]
-            clsi[i], predict[i] = c(part[i])
-
-        y = []
-        f = []
-        for i in range(self.part):
-            f.append(clsi[i])
-            y.append(predict[i])
-
-        result = torch.stack(y, dim=1)#.sum(dim=0)
-        
-        pre_logit = result.view(result.size(0), -1)
+        pre_logit = self.avgpool(x)
+        pre_logit = pre_logit.reshape(pre_logit.size(0), -1)
         logits = self.fc(pre_logit)
+
 
         if return_cam:
             feature_map = x.detach().clone()
@@ -194,11 +152,9 @@ class ResNetCam(nn.Module):
             return cams
 
 
-
         return {'logits':  logits}
 
 
-        # return {'logits': logits}
 
     def _make_layer(self, block, planes, blocks, stride):
         layers = self._layer(block, planes, blocks, stride)
